@@ -43,10 +43,10 @@ Once configured, your iOS devices should be able to install/refresh apps without
 
 ## Docker
 
-A Docker image is available at `ghcr.io/xddxdd/sidestore-vpn`:
+A Docker image is available at `ghcr.io/Skulldorom/sidestore-vpn`:
 
 ```bash
-docker run --rm --cap-add=NET_ADMIN --network=host --device /dev/net/tun:/dev/net/tun ghcr.io/xddxdd/sidestore-vpn
+docker run --rm --cap-add=NET_ADMIN --network=host --device /dev/net/tun:/dev/net/tun ghcr.io/Skulldorom/sidestore-vpn
 ```
 
 ## Docker compose
@@ -54,7 +54,7 @@ docker run --rm --cap-add=NET_ADMIN --network=host --device /dev/net/tun:/dev/ne
 ```yaml
 services:
   sidestore-vpn:
-    image: ghcr.io/xddxdd/sidestore-vpn
+    image: ghcr.io/Skulldorom/sidestore-vpn
       cap_add:
         - NET_ADMIN
       network_mode: host
@@ -70,14 +70,14 @@ Because the binary is the only thing in the image the bare minimum is used.
 ## Examples with Tailscale
 
 ```bash
-docker run --rm --cap-add=NET_ADMIN -v /dev/net/tun:/dev/net/tun ghcr.io/xddxdd/sidestore-vpn:tailscale
+docker run --rm --cap-add=NET_ADMIN -v /dev/net/tun:/dev/net/tun ghcr.io/Skulldorom/sidestore-vpn
 ```
 
 ```bash
 docker run --rm --cap-add=NET_ADMIN -v /dev/net/tun:/dev/net/tun -v ./state:/var/lib/tailscale \
   -e TS_AUTHKEY=tskey-xxxxxxx \
   -e TS_HOSTNAME=sidestore-vpn \
-  ghcr.io/xddxdd/sidestore-vpn:tailscale
+  ghcr.io/Skulldorom/sidestore-vpn
 ```
 
 ```bash
