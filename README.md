@@ -41,37 +41,9 @@ If your router doesn't allow you to create a `/32` route, you can expand the rou
 
 Once configured, your iOS devices should be able to install/refresh apps without WireGuard or StosVPN.
 
-## Docker
+## Docker with Tailscale
 
-A Docker image is available at `ghcr.io/Skulldorom/sidestore-vpn`:
-
-```bash
-docker run --rm --cap-add=NET_ADMIN --network=host --device /dev/net/tun:/dev/net/tun ghcr.io/Skulldorom/sidestore-vpn
-```
-
-## Docker compose
-
-```yaml
-services:
-  sidestore-vpn:
-    image: ghcr.io/Skulldorom/sidestore-vpn
-      cap_add:
-        - NET_ADMIN
-      network_mode: host
-        devices:
-          - /dev/net/tun:/dev/net/tun
-```
-
-The container requires the `/dev/net/tun` device, as well as `network_mode: host` to create the interface. The `NET_ADMIN` permission allows the container to perform network-related tasks that require elevated permissions.
-
-An alternative to both would be to use `privileged` in the `docker run` command or `privileged: true` in the docker compose.
-Because the binary is the only thing in the image the bare minimum is used.
-
-## Examples with Tailscale
-
-```bash
-docker run --rm --cap-add=NET_ADMIN -v /dev/net/tun:/dev/net/tun ghcr.io/Skulldorom/sidestore-vpn
-```
+A Docker image is available at `ghcr.io/Skulldorom/sidestore-vpn`. The recommended way to run it is with Tailscale, which handles routing automatically without needing to configure static routes on your router.
 
 ```bash
 docker run --rm --cap-add=NET_ADMIN -v /dev/net/tun:/dev/net/tun -v ./state:/var/lib/tailscale \
@@ -80,10 +52,31 @@ docker run --rm --cap-add=NET_ADMIN -v /dev/net/tun:/dev/net/tun -v ./state:/var
   ghcr.io/Skulldorom/sidestore-vpn
 ```
 
+## Docker Compose with Tailscale
+
+Create a `.env` file with your Tailscale auth key and optionally a custom hostname:
+
 ```bash
-echo "TS_AUTHKEY=tskey-xxxxxxx" > .env
+TS_AUTHKEY=tskey-xxxxxxx
+TS_HOSTNAME=sidestore-vpn  # optional, defaults to sidestore-vpn
+```
+
+Then start the service:
+
+```bash
 docker compose -f docker-compose-tailscale.yml up
 ```
+
+The `docker-compose-tailscale.yml` file uses the following environment variables:
+
+| Variable | Description | Default |
+|---|---|---|
+| `TS_AUTHKEY` | Tailscale auth key (required) | — |
+| `TS_HOSTNAME` | Hostname shown in Tailscale admin | `sidestore-vpn` |
+| `TS_ROUTES` | Subnet routes advertised via Tailscale | `10.7.0.1/32` |
+| `TS_EXTRA_ARGS` | Extra arguments passed to Tailscale | `--snat-subnet-routes=false` |
+
+The container requires the `/dev/net/tun` device and the `NET_ADMIN` capability to create the TUN interface. The Tailscale state is persisted in `./state` so you don't need to re-authenticate on restart.
 
 ## systemd-service
 
