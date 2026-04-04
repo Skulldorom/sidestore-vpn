@@ -1,6 +1,6 @@
 services:
   sidestore-vpn:
-    image: ghcr.io/Skulldorom/sidestore-vpn:latest
+    image: ghcr.io/skulldorom/sidestore-vpn:latest
     cap_add:
       - NET_ADMIN
     devices:
