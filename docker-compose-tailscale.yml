@@ -5,6 +5,8 @@ services:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+      # Uncomment the following line on hosts with a TPM module to enable hardware attestation:
+      # - /dev/tpmrm0:/dev/tpmrm0
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
       - TS_ROUTES=${TS_ROUTES:-10.7.0.1/32}
