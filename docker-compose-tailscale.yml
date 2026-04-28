@@ -1,12 +1,17 @@
 services:
   sidestore-vpn:
     image: ghcr.io/skulldorom/sidestore-vpn:latest
+    container_name: sidestore-vpn
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
       # Uncomment the following line on hosts with a TPM module to enable hardware attestation:
       # - /dev/tpmrm0:/dev/tpmrm0
+    # Uncomment the following lines to enable IP forwarding on the host (required for routing traffic through the VPN):
+    # sysctls:
+    #   net.ipv4.ip_forward: "1"
+    #   net.ipv6.conf.all.forwarding: "1"
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
       - TS_ROUTES=${TS_ROUTES:-10.7.0.1/32}

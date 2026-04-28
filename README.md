@@ -12,35 +12,6 @@ This tool creates a TUN device expecting packets to 10.7.0.1, swap the source/de
 
 This is the same approach as used by StosVPN: <https://github.com/SideStore/StosVPN/blob/main/TunnelProv/PacketTunnelProvider.swift>
 
-# How to use
-
-You need to run this tool on a Linux computer that is in the same LAN. This tool will not work if there are stateful NAT layers between the iOS device and the computer, since when sending the packets back, this tool is effectively initiating connections back to the iOS device, which will be blocked by stateful NAT.
-
-You will also need to enable IP forwarding on that Linux machine.
-
-Install `cargo` on your Linux machine, clone this repo, and run:
-
-```bash
-cargo build --release
-sudo target/release/sidestore-vpn
-```
-
-A new TUN device will be created, and start handling traffic to `10.7.0.1`.
-
-If you're not running this tool on your router, you need to create a static route in your router with the following configuration.
-
-- Route: `10.7.0.1/32`
-- Netmask (if asked): `255.255.255.255`
-- Gateway: IP address of the computer running this tool.
-
-If your router doesn't allow you to create a `/32` route, you can expand the route a bit, as long as it doesn't conflict with your other devices:
-
-- Route: `10.7.0.0/24`
-- Netmask (if asked): `255.255.255.0`
-- Gateway: IP address of the computer running this tool.
-
-Once configured, your iOS devices should be able to install/refresh apps without WireGuard or StosVPN.
-
 ## Docker with Tailscale
 
 A Docker image is available at `ghcr.io/Skulldorom/sidestore-vpn`. The recommended way to run it is with Tailscale, which handles routing automatically without needing to configure static routes on your router.
@@ -67,47 +38,46 @@ Then start the service:
 docker compose -f docker-compose-tailscale.yml up
 ```
 
+Example `docker-compose-tailscale.yml`:
+
+```yamlversion: "3.8"
+services:
+  sidestore-vpn:
+    image: ghcr.io/skulldorom/sidestore-vpn:latest
+    container_name: sidestore-vpn
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+      # Uncomment the following line on hosts with a TPM module to enable hardware attestation:
+      # - /dev/tpmrm0:/dev/tpmrm0
+    # Uncomment the following lines to enable IP forwarding on the host (required for routing traffic through the VPN):
+    # sysctls:
+    #   net.ipv4.ip_forward: "1"
+    #   net.ipv6.conf.all.forwarding: "1"
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_ROUTES=${TS_ROUTES:-10.7.0.1/32}
+      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:---snat-subnet-routes=false}
+      - TS_HOSTNAME=${TS_HOSTNAME:-sidestore-vpn}
+    volumes:
+      - ./state:/var/lib/tailscale
+```
+
 The `docker-compose-tailscale.yml` file uses the following environment variables:
 
-| Variable | Description | Default |
-|---|---|---|
-| `TS_AUTHKEY` | Tailscale auth key (required) | — |
-| `TS_HOSTNAME` | Hostname shown in Tailscale admin | `sidestore-vpn` |
-| `TS_ROUTES` | Subnet routes advertised via Tailscale | `10.7.0.1/32` |
-| `TS_EXTRA_ARGS` | Extra arguments passed to Tailscale | `--snat-subnet-routes=false` |
+| Variable        | Description                            | Default                      |
+| --------------- | -------------------------------------- | ---------------------------- |
+| `TS_AUTHKEY`    | Tailscale auth key (required)          | —                            |
+| `TS_HOSTNAME`   | Hostname shown in Tailscale admin      | `sidestore-vpn`              |
+| `TS_ROUTES`     | Subnet routes advertised via Tailscale | `10.7.0.1/32`                |
+| `TS_EXTRA_ARGS` | Extra arguments passed to Tailscale    | `--snat-subnet-routes=false` |
 
 The container requires the `/dev/net/tun` device and the `NET_ADMIN` capability to create the TUN interface. The Tailscale state is persisted in `./state` so you don't need to re-authenticate on restart.
 
-## systemd-service
-
-To start the service when the system boots you can add the following systemd service:
-
-```
-[Unit]
-Description=Sidestore app signing
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/home/YOUR_USERNAME_HERE/sidestore-vpn/target/release/sidestore-vpn
-User=root
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Ensure the `ExecStart` path is correct. To enable it:
-
-1. Write the above configuration to sudo `/etc/systemd/system/sidestore.service`
-2. Run `sudo systemctl daemon-reload` to load the service
-3. Run `sudo systemctl enable sidestore` to enable the service
-4. Run `sudo systemctl start sidestore` to start the service
-5. Run `sudo systemctl status sidestore` to check if the service is running 
-
 # Credit
 
-Thanks to [SideStore](github.com/SideStore/SideStore) for creating an app to easily install apps on iOS devices.
+Thanks to [SideStore](https://github.com/SideStore/SideStore) for creating an app to easily install apps on iOS devices.
 
 Thanks to [StosVPN](https://github.com/SideStore/StosVPN) for the approach in networking.
 
