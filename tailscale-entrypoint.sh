@@ -34,7 +34,11 @@ done
 
 # Build tailscale up arguments
 UP_ARGS=""
-[ -n "${TS_AUTHKEY}" ]              && UP_ARGS="${UP_ARGS} --authkey=${TS_AUTHKEY}"
+# Only use the auth key on first run; if state already exists the node identity is
+# persisted and no new key is needed (avoids consuming a one-time key on every restart).
+if [ ! -s /var/lib/tailscale/tailscaled.state ]; then
+    [ -n "${TS_AUTHKEY}" ] && UP_ARGS="${UP_ARGS} --authkey=${TS_AUTHKEY}"
+fi
 [ -n "${TS_ROUTES}" ]               && UP_ARGS="${UP_ARGS} --advertise-routes=${TS_ROUTES}"
 [ -n "${TS_HOSTNAME}" ]             && UP_ARGS="${UP_ARGS} --hostname=${TS_HOSTNAME}"
 [ -n "${TS_EXTRA_ARGS}" ]           && UP_ARGS="${UP_ARGS} ${TS_EXTRA_ARGS}"
