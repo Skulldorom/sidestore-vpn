@@ -18,5 +18,11 @@ services:
       - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:---snat-subnet-routes=false}
       - TS_HOSTNAME=${TS_HOSTNAME:-sidestore-vpn}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ping", "-c", "1", "-W", "3", "10.7.0.1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     volumes:
       - ./state:/var/lib/tailscale
