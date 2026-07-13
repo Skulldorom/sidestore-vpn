@@ -14,58 +14,31 @@ This is the same approach as used by StosVPN: <https://github.com/SideStore/Stos
 
 ## Docker with Tailscale
 
-A Docker image is available at `ghcr.io/Skulldorom/sidestore-vpn`. The recommended way to run it is with Tailscale, which handles routing automatically without needing to configure static routes on your router.
+Two Docker images are available:
+
+- **`ghcr.io/skulldorom/sidestore-vpn`** — the sidestore-vpn binary (minimal scratch image, ~2 MB)
+- **`tailscale/tailscale:stable`** — official Tailscale image (handles mesh networking and route advertisement)
+
+The recommended setup runs both containers together. The sidestore-vpn container shares the Tailscale container's network namespace via `network_mode: "service:tailscale"`, so all traffic routed through Tailscale reaches the TUN device created by sidestore-vpn.
 
 ```bash
-docker run --rm --cap-add=NET_ADMIN -v /dev/net/tun:/dev/net/tun -v ./state:/var/lib/tailscale \
-  -e TS_AUTHKEY=tskey-xxxxxxx \
-  -e TS_HOSTNAME=sidestore-vpn \
-  ghcr.io/Skulldorom/sidestore-vpn
+# Create a state directory for Tailscale persistence
+mkdir -p state
+
+# Start both containers with docker compose
+docker compose up -d
 ```
 
-## Docker Compose with Tailscale
-
-Create a `.env` file with your Tailscale auth key and optionally a custom hostname:
+Create a `.env` file with your Tailscale auth key and optional settings:
 
 ```bash
 TS_AUTHKEY=tskey-xxxxxxx
 TS_HOSTNAME=sidestore-vpn  # optional, defaults to sidestore-vpn
 ```
 
-Then start the service:
+## Docker Compose with Tailscale
 
-```bash
-docker compose -f docker-compose-tailscale.yml up
-```
-
-Example `docker-compose-tailscale.yml`:
-
-```yamlversion: "3.8"
-services:
-  sidestore-vpn:
-    image: ghcr.io/skulldorom/sidestore-vpn:latest
-    container_name: sidestore-vpn
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-      # Uncomment the following line on hosts with a TPM module to enable hardware attestation:
-      # - /dev/tpmrm0:/dev/tpmrm0
-    # Uncomment the following lines to enable IP forwarding on the host (required for routing traffic through the VPN):
-    # sysctls:
-    #   net.ipv4.ip_forward: "1"
-    #   net.ipv6.conf.all.forwarding: "1"
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY}
-      - TS_ROUTES=${TS_ROUTES:-10.7.0.1/32}
-      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:---snat-subnet-routes=false}
-      - TS_HOSTNAME=${TS_HOSTNAME:-sidestore-vpn}
-    restart: unless-stopped
-    volumes:
-      - ./state:/var/lib/tailscale
-```
-
-The `docker-compose-tailscale.yml` file uses the following environment variables:
+The `docker-compose.yml` file uses the following environment variables:
 
 | Variable        | Description                            | Default                      |
 | --------------- | -------------------------------------- | ---------------------------- |
@@ -74,7 +47,9 @@ The `docker-compose-tailscale.yml` file uses the following environment variables
 | `TS_ROUTES`     | Subnet routes advertised via Tailscale | `10.7.0.1/32`                |
 | `TS_EXTRA_ARGS` | Extra arguments passed to Tailscale    | `--snat-subnet-routes=false` |
 
-The container requires the `/dev/net/tun` device and the `NET_ADMIN` capability to create the TUN interface. The Tailscale state is persisted in `./state` so you don't need to re-authenticate on restart.
+The Tailscale state is persisted in `./state` so you don't need to re-authenticate on restart.
+
+Both containers require the `/dev/net/tun` device and the `NET_ADMIN` capability — Tailscale for its own TUN interface, and sidestore-vpn for its packet-rewriting TUN device.
 
 # Credit
 
