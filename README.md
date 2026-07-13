@@ -38,7 +38,7 @@ Environment variables used by the Compose file:
 | `TS_ROUTES`     | Subnet routes advertised via Tailscale | `10.7.0.1/32`                |
 | `TS_EXTRA_ARGS` | Extra arguments passed to Tailscale    | `--snat-subnet-routes=false` |
 
-The `sidestore-vpn` service requires `/dev/net/tun` and `NET_ADMIN` to create the TUN interface; the `tailscale` service shares its network stack via `network_mode: service:sidestore-vpn`. Tailscale state is persisted in `./state` so you don't need to re-authenticate on restart.
+Both the `sidestore-vpn` and `tailscale` services require their own `/dev/net/tun` device mount and `NET_ADMIN` capability because Compose's `network_mode: service:sidestore-vpn` shares only the network stack, not runtime capabilities or devices. Tailscale state is persisted in `./state` so you don't need to re-authenticate on restart.
 
 # Credit
 

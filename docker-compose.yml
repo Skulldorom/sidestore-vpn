@@ -23,6 +23,12 @@ services:
   tailscale:
     image: tailscale/tailscale:stable
     container_name: sidestore-vpn-tailscale
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+      # Uncomment the following line on hosts with a TPM module to enable hardware attestation:
+      # - /dev/tpmrm0:/dev/tpmrm0
     network_mode: service:sidestore-vpn
     depends_on:
       - sidestore-vpn
