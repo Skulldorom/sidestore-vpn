@@ -1,10 +1,14 @@
 use clap::Parser;
 use smoltcp::wire::{Ipv4Address, Ipv4Packet};
 use std::io::{Read, Write};
+use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use std::time::Duration;
 use tun::AbstractDevice;
 
 const SIDESTORE_INTERFACE_ADDR: Ipv4Address = Ipv4Address::new(10, 7, 0, 0);
 const SIDESTORE_DESTINATION_ADDR: Ipv4Address = Ipv4Address::new(10, 7, 0, 1);
+const HEALTHCHECK_TIMEOUT: Duration = Duration::from_secs(2);
+const HEALTHCHECK_PAYLOAD: &[u8] = b"sidestore-vpn-healthcheck";
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -69,7 +73,28 @@ fn run_healthcheck() -> Result<(), Box<dyn std::error::Error>> {
         return Err("healthcheck packet was rewritten incorrectly".into());
     }
 
+    check_sidestore_destination_reachable()?;
+
     println!("sidestore-vpn healthcheck ok");
+    Ok(())
+}
+
+fn check_sidestore_destination_reachable() -> Result<(), Box<dyn std::error::Error>> {
+    let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))?;
+    let local_port = socket.local_addr()?.port();
+    let destination = SocketAddrV4::new(SIDESTORE_DESTINATION_ADDR, local_port);
+
+    socket.set_read_timeout(Some(HEALTHCHECK_TIMEOUT))?;
+    socket.set_write_timeout(Some(HEALTHCHECK_TIMEOUT))?;
+    socket.connect(destination)?;
+    socket.send(HEALTHCHECK_PAYLOAD)?;
+
+    let mut response = [0u8; 64];
+    let response_len = socket.recv(&mut response)?;
+    if &response[..response_len] != HEALTHCHECK_PAYLOAD {
+        return Err("healthcheck probe received unexpected payload".into());
+    }
+
     Ok(())
 }
 
