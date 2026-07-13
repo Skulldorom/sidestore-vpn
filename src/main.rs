@@ -12,10 +12,19 @@ struct Args {
     /// Name of the TUN interface
     #[arg(short, long, default_value = "sidestore")]
     tun_name: String,
+
+    /// Run a lightweight self-check suitable for the scratch container image
+    #[arg(long)]
+    healthcheck: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
+    if args.healthcheck {
+        run_healthcheck()?;
+        return Ok(());
+    }
 
     // Set up Ctrl+C handler to exit immediately
     ctrlc::set_handler(|| {
@@ -42,9 +51,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let packet_buf = &mut buf[..n];
 
         if rewrite_sidestore_packet(packet_buf) {
-            dev.write(packet_buf)?;
+            dev.write_all(packet_buf)?;
         }
     }
+}
+
+fn run_healthcheck() -> Result<(), Box<dyn std::error::Error>> {
+    let mut packet_buf = healthcheck_packet();
+    if !rewrite_sidestore_packet(&mut packet_buf) {
+        return Err("failed to rewrite healthcheck packet".into());
+    }
+
+    let rewritten_packet = Ipv4Packet::new_checked(&packet_buf[..])?;
+    if rewritten_packet.src_addr() != SIDESTORE_DESTINATION_ADDR
+        || rewritten_packet.dst_addr() != SIDESTORE_INTERFACE_ADDR
+    {
+        return Err("healthcheck packet was rewritten incorrectly".into());
+    }
+
+    println!("sidestore-vpn healthcheck ok");
+    Ok(())
+}
+
+fn healthcheck_packet() -> [u8; 20] {
+    let mut packet_buf = [0u8; 20];
+    let mut packet = Ipv4Packet::new_unchecked(&mut packet_buf[..]);
+    packet.set_version(4);
+    packet.set_header_len(5);
+    packet.set_total_len(20);
+    packet.set_src_addr(SIDESTORE_INTERFACE_ADDR);
+    packet.set_dst_addr(SIDESTORE_DESTINATION_ADDR);
+    packet_buf
 }
 
 fn rewrite_sidestore_packet(packet_buf: &mut [u8]) -> bool {
@@ -65,7 +102,7 @@ fn rewrite_sidestore_packet(packet_buf: &mut [u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{rewrite_sidestore_packet, SIDESTORE_DESTINATION_ADDR};
+    use super::{SIDESTORE_DESTINATION_ADDR, healthcheck_packet, rewrite_sidestore_packet};
     use smoltcp::wire::{Ipv4Address, Ipv4Packet};
 
     #[test]
@@ -91,6 +128,14 @@ mod tests {
         let packet = Ipv4Packet::new_checked(&packet_buf[..]).unwrap();
         assert_eq!(packet.src_addr(), src_addr);
         assert_eq!(packet.dst_addr(), dst_addr);
+    }
+
+    #[test]
+    fn healthcheck_packet_targets_sidestore_destination() {
+        let packet_buf = healthcheck_packet();
+
+        let packet = Ipv4Packet::new_checked(&packet_buf[..]).unwrap();
+        assert_eq!(packet.dst_addr(), SIDESTORE_DESTINATION_ADDR);
     }
 
     fn ipv4_packet(src_addr: Ipv4Address, dst_addr: Ipv4Address) -> [u8; 20] {
