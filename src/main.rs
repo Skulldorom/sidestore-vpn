@@ -1,15 +1,11 @@
 use clap::Parser;
 use smoltcp::wire::{Ipv4Address, Ipv4Packet};
+use std::fs;
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
-use std::time::Duration;
 use tun::AbstractDevice;
 
 const SIDESTORE_INTERFACE_ADDR: Ipv4Address = Ipv4Address::new(10, 7, 0, 0);
 const SIDESTORE_DESTINATION_ADDR: Ipv4Address = Ipv4Address::new(10, 7, 0, 1);
-const SIDESTORE_DESTINATION_STD_ADDR: Ipv4Addr = Ipv4Addr::new(10, 7, 0, 1);
-const HEALTHCHECK_TIMEOUT: Duration = Duration::from_secs(2);
-const HEALTHCHECK_PAYLOAD: &[u8] = b"sidestore-vpn-healthcheck";
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -81,22 +77,29 @@ fn run_healthcheck() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn check_sidestore_destination_reachable() -> Result<(), Box<dyn std::error::Error>> {
-    let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))?;
-    let local_port = socket.local_addr()?.port();
-    let destination = SocketAddrV4::new(SIDESTORE_DESTINATION_STD_ADDR, local_port);
-
-    socket.set_read_timeout(Some(HEALTHCHECK_TIMEOUT))?;
-    socket.set_write_timeout(Some(HEALTHCHECK_TIMEOUT))?;
-    socket.connect(destination)?;
-    socket.send(HEALTHCHECK_PAYLOAD)?;
-
-    let mut response = [0u8; 64];
-    let response_len = socket.recv(&mut response)?;
-    if &response[..response_len] != HEALTHCHECK_PAYLOAD {
-        return Err("healthcheck probe received unexpected payload".into());
+    let route_table = fs::read_to_string("/proc/net/route")?;
+    if sidestore_destination_has_host_route(&route_table) {
+        Ok(())
+    } else {
+        Err("10.7.0.1 is not reachable: missing active /32 route".into())
     }
+}
 
-    Ok(())
+fn sidestore_destination_has_host_route(route_table: &str) -> bool {
+    route_table.lines().skip(1).any(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 8 {
+            return false;
+        }
+
+        let destination = fields[1];
+        let flags = fields[3];
+        let mask = fields[7];
+
+        destination.eq_ignore_ascii_case("0100070A")
+            && mask.eq_ignore_ascii_case("FFFFFFFF")
+            && u16::from_str_radix(flags, 16).is_ok_and(|flags| flags & 0x1 == 0x1)
+    })
 }
 
 fn healthcheck_packet() -> [u8; 20] {
@@ -128,7 +131,10 @@ fn rewrite_sidestore_packet(packet_buf: &mut [u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SIDESTORE_DESTINATION_ADDR, healthcheck_packet, rewrite_sidestore_packet};
+    use super::{
+        SIDESTORE_DESTINATION_ADDR, healthcheck_packet, rewrite_sidestore_packet,
+        sidestore_destination_has_host_route,
+    };
     use smoltcp::wire::{Ipv4Address, Ipv4Packet};
 
     #[test]
@@ -154,6 +160,22 @@ mod tests {
         let packet = Ipv4Packet::new_checked(&packet_buf[..]).unwrap();
         assert_eq!(packet.src_addr(), src_addr);
         assert_eq!(packet.dst_addr(), dst_addr);
+    }
+
+    #[test]
+    fn detects_reachable_sidestore_destination_route() {
+        let route_table = "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n\
+             sidestore\t0100070A\t00000000\t0001\t0\t0\t0\tFFFFFFFF\n";
+
+        assert!(sidestore_destination_has_host_route(route_table));
+    }
+
+    #[test]
+    fn rejects_missing_sidestore_destination_route() {
+        let route_table = "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n\
+             eth0\t00000000\t010012AC\t0003\t0\t0\t0\t00000000\n";
+
+        assert!(!sidestore_destination_has_host_route(route_table));
     }
 
     #[test]
