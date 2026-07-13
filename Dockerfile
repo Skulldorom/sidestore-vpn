@@ -10,8 +10,11 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
+# Run the full test suite before producing the release binary
+RUN cargo test --locked
+
 # Build a statically linked binary
-RUN cargo build --release
+RUN cargo build --release --locked
 
 # Final stage
 FROM scratch

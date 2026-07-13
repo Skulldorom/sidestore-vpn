@@ -102,10 +102,11 @@ fn healthcheck_packet() -> [u8; 20] {
     let mut packet_buf = [0u8; 20];
     let mut packet = Ipv4Packet::new_unchecked(&mut packet_buf[..]);
     packet.set_version(4);
-    packet.set_header_len(5);
+    packet.set_header_len(20);
     packet.set_total_len(20);
     packet.set_src_addr(SIDESTORE_INTERFACE_ADDR);
     packet.set_dst_addr(SIDESTORE_DESTINATION_ADDR);
+    packet.fill_checksum();
     packet_buf
 }
 
@@ -113,6 +114,10 @@ fn rewrite_sidestore_packet(packet_buf: &mut [u8]) -> bool {
     let Ok(mut ipv4_packet) = Ipv4Packet::new_checked(packet_buf) else {
         return false;
     };
+
+    if ipv4_packet.version() != 4 {
+        return false;
+    }
 
     let dst_addr = ipv4_packet.dst_addr();
     if dst_addr != SIDESTORE_DESTINATION_ADDR {
@@ -122,55 +127,129 @@ fn rewrite_sidestore_packet(packet_buf: &mut [u8]) -> bool {
     let src_addr = ipv4_packet.src_addr();
     ipv4_packet.set_dst_addr(src_addr);
     ipv4_packet.set_src_addr(dst_addr);
+    ipv4_packet.fill_checksum();
     true
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{SIDESTORE_DESTINATION_ADDR, healthcheck_packet, rewrite_sidestore_packet};
-    use smoltcp::wire::{Ipv4Address, Ipv4Packet};
+    use super::{
+        SIDESTORE_DESTINATION_ADDR, SIDESTORE_INTERFACE_ADDR, healthcheck_packet,
+        rewrite_sidestore_packet,
+    };
+    use smoltcp::wire::{IpProtocol, Ipv4Address, Ipv4Packet};
+
+    const TEST_SRC_ADDR: Ipv4Address = Ipv4Address::new(100, 64, 0, 2);
+    const OTHER_DST_ADDR: Ipv4Address = Ipv4Address::new(8, 8, 8, 8);
+    const TEST_PAYLOAD: &[u8] = b"sidestore-test-payload";
 
     #[test]
     fn rewrites_packets_sent_to_sidestore_destination() {
-        let src_addr = Ipv4Address::new(100, 64, 0, 2);
-        let mut packet_buf = ipv4_packet(src_addr, SIDESTORE_DESTINATION_ADDR);
+        let mut packet_buf = ipv4_packet(TEST_SRC_ADDR, SIDESTORE_DESTINATION_ADDR, TEST_PAYLOAD);
 
         assert!(rewrite_sidestore_packet(&mut packet_buf));
 
         let rewritten_packet = Ipv4Packet::new_checked(&packet_buf[..]).unwrap();
         assert_eq!(rewritten_packet.src_addr(), SIDESTORE_DESTINATION_ADDR);
-        assert_eq!(rewritten_packet.dst_addr(), src_addr);
+        assert_eq!(rewritten_packet.dst_addr(), TEST_SRC_ADDR);
+        assert_eq!(rewritten_packet.payload(), TEST_PAYLOAD);
+        assert!(rewritten_packet.verify_checksum());
+    }
+
+    #[test]
+    fn preserves_non_address_ipv4_header_fields_when_rewriting() {
+        let mut packet_buf = ipv4_packet(TEST_SRC_ADDR, SIDESTORE_DESTINATION_ADDR, TEST_PAYLOAD);
+        let original = Ipv4Packet::new_checked(&packet_buf[..]).unwrap();
+        let original_header_len = original.header_len();
+        let original_total_len = original.total_len();
+        let original_ident = original.ident();
+        let original_hop_limit = original.hop_limit();
+        let original_next_header = original.next_header();
+        let original_dont_frag = original.dont_frag();
+
+        assert!(rewrite_sidestore_packet(&mut packet_buf));
+
+        let rewritten = Ipv4Packet::new_checked(&packet_buf[..]).unwrap();
+        assert_eq!(rewritten.header_len(), original_header_len);
+        assert_eq!(rewritten.total_len(), original_total_len);
+        assert_eq!(rewritten.ident(), original_ident);
+        assert_eq!(rewritten.hop_limit(), original_hop_limit);
+        assert_eq!(rewritten.next_header(), original_next_header);
+        assert_eq!(rewritten.dont_frag(), original_dont_frag);
     }
 
     #[test]
     fn ignores_packets_for_other_destinations() {
-        let src_addr = Ipv4Address::new(100, 64, 0, 2);
-        let dst_addr = Ipv4Address::new(8, 8, 8, 8);
-        let mut packet_buf = ipv4_packet(src_addr, dst_addr);
+        let mut packet_buf = ipv4_packet(TEST_SRC_ADDR, OTHER_DST_ADDR, TEST_PAYLOAD);
+        let original_packet_buf = packet_buf.clone();
 
         assert!(!rewrite_sidestore_packet(&mut packet_buf));
+        assert_eq!(packet_buf, original_packet_buf);
 
         let packet = Ipv4Packet::new_checked(&packet_buf[..]).unwrap();
-        assert_eq!(packet.src_addr(), src_addr);
-        assert_eq!(packet.dst_addr(), dst_addr);
+        assert_eq!(packet.src_addr(), TEST_SRC_ADDR);
+        assert_eq!(packet.dst_addr(), OTHER_DST_ADDR);
+        assert!(packet.verify_checksum());
     }
 
     #[test]
-    fn healthcheck_packet_targets_sidestore_destination() {
+    fn rejects_truncated_packets_without_mutating_them() {
+        let mut packet_buf = [0xabu8; 12];
+        let original_packet_buf = packet_buf;
+
+        assert!(!rewrite_sidestore_packet(&mut packet_buf));
+        assert_eq!(packet_buf, original_packet_buf);
+    }
+
+    #[test]
+    fn rejects_packets_with_invalid_ipv4_version_without_mutating_them() {
+        let mut packet_buf = ipv4_packet(TEST_SRC_ADDR, SIDESTORE_DESTINATION_ADDR, TEST_PAYLOAD);
+        packet_buf[0] = (6 << 4) | 5;
+        let original_packet_buf = packet_buf.clone();
+
+        assert!(!rewrite_sidestore_packet(&mut packet_buf));
+        assert_eq!(packet_buf, original_packet_buf);
+    }
+
+    #[test]
+    fn rejects_packets_with_inconsistent_total_length_without_mutating_them() {
+        let mut packet_buf = ipv4_packet(TEST_SRC_ADDR, SIDESTORE_DESTINATION_ADDR, TEST_PAYLOAD);
+        packet_buf[2] = 0xff;
+        packet_buf[3] = 0xff;
+        let original_packet_buf = packet_buf.clone();
+
+        assert!(!rewrite_sidestore_packet(&mut packet_buf));
+        assert_eq!(packet_buf, original_packet_buf);
+    }
+
+    #[test]
+    fn healthcheck_packet_is_a_valid_minimal_ipv4_packet() {
         let packet_buf = healthcheck_packet();
 
         let packet = Ipv4Packet::new_checked(&packet_buf[..]).unwrap();
+        assert_eq!(packet.version(), 4);
+        assert_eq!(packet.header_len(), 20);
+        assert_eq!(packet.total_len(), 20);
+        assert_eq!(packet.src_addr(), SIDESTORE_INTERFACE_ADDR);
         assert_eq!(packet.dst_addr(), SIDESTORE_DESTINATION_ADDR);
+        assert!(packet.verify_checksum());
     }
 
-    fn ipv4_packet(src_addr: Ipv4Address, dst_addr: Ipv4Address) -> [u8; 20] {
-        let mut packet_buf = [0u8; 20];
+    fn ipv4_packet(src_addr: Ipv4Address, dst_addr: Ipv4Address, payload: &[u8]) -> Vec<u8> {
+        let packet_len = 20 + payload.len();
+        let mut packet_buf = vec![0u8; packet_len];
         let mut packet = Ipv4Packet::new_unchecked(&mut packet_buf[..]);
         packet.set_version(4);
-        packet.set_header_len(5);
-        packet.set_total_len(20);
+        packet.set_header_len(20);
+        packet.set_total_len(packet_len as u16);
+        packet.set_ident(0x1234);
+        packet.set_dont_frag(true);
+        packet.set_hop_limit(64);
+        packet.set_next_header(IpProtocol::Udp);
         packet.set_src_addr(src_addr);
         packet.set_dst_addr(dst_addr);
+        packet.payload_mut().copy_from_slice(payload);
+        packet.fill_checksum();
         packet_buf
     }
 }
