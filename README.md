@@ -81,6 +81,8 @@ The `sidestore-vpn` container also has a Docker healthcheck that runs:
 /sidestore-vpn --healthcheck
 ```
 
+That healthcheck only validates the Rust packet rewrite and local TUN path. It does not prove Tailscale authentication worked, the advertised route is approved, or a remote iOS device can reach the service. Tiny scope, fewer lies.
+
 ## Configuration
 
 The Compose file runs two containers:
@@ -110,15 +112,20 @@ This project needs real L3 packets to enter the shared network namespace so `sid
 
 ### Persisted Tailscale state
 
-The Compose file mounts:
+The Compose file mounts a named Docker volume:
 
 ```yaml
-./state:/var/lib/tailscale
+tailscale-state:/var/lib/tailscale
 ```
 
-`TS_STATE_DIR=/var/lib/tailscale` tells Tailscale to store its state in that mounted directory, and `TS_AUTH_ONCE=true` tells it not to re-authenticate when that state already exists. Together, those settings keep the container from creating a fresh Tailscale node every time it restarts.
+`TS_STATE_DIR=/var/lib/tailscale` tells Tailscale to store its state in that mounted volume, and `TS_AUTH_ONCE=true` tells it not to re-authenticate when that state already exists. Together, those settings keep the container from creating a fresh Tailscale node every time it restarts.
 
-If you want to intentionally re-enroll the node, stop the stack and remove `./state` before starting it again.
+If you want to intentionally re-enroll the node, stop the stack and remove the named volume before starting it again:
+
+```bash
+docker compose down -v
+docker compose up -d
+```
 
 ## Updating
 
@@ -139,7 +146,7 @@ Check that the `10.7.0.1/32` route is approved in the Tailscale admin console. A
 
 ### Tailscale creates a new machine on every restart
 
-Make sure the `./state:/var/lib/tailscale` volume exists and that `TS_STATE_DIR=/var/lib/tailscale` is set. Do not delete `./state` unless you want to re-enroll the node.
+Make sure the `tailscale-state:/var/lib/tailscale` volume exists and that `TS_STATE_DIR=/var/lib/tailscale` is set. Do not remove the named volume unless you want to re-enroll the node.
 
 ### The containers fail to start with TUN or permission errors
 
@@ -159,7 +166,7 @@ Check the logs first:
 docker logs sidestore-vpn
 ```
 
-The healthcheck exercises the packet rewrite path and sends a UDP probe to `10.7.0.1`. If the route is not active yet, the healthcheck can fail even though the binary itself started correctly.
+The healthcheck exercises the packet rewrite path and sends a UDP probe to `10.7.0.1` through the local TUN interface. It does not check Tailscale login state, advertised route approval, or remote iOS reachability. If the local route is not active yet, the healthcheck can fail even though the binary itself started correctly.
 
 ## Credit
 
