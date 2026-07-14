@@ -2,6 +2,8 @@ name: Build and Publish Docker Image
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [master]
   schedule:
     - cron: '0 0 * * *'
   push:
@@ -10,58 +12,9 @@ on:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/sidestore-vpn
-  TAILSCALE_IMAGE: tailscale/tailscale:stable
 
 jobs:
-  check-tailscale:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      changed: ${{ steps.compare.outputs.changed }}
-    steps:
-      - name: Fetch current tailscale/tailscale:stable digest
-        id: fetch
-        run: |
-          digest=$(docker buildx imagetools inspect tailscale/tailscale:stable \
-            --format '{{ json .Manifest }}' | jq -r '.digest')
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-
-      - name: Restore cached digest
-        id: cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .tailscale-digest
-          key: tailscale-digest-${{ steps.fetch.outputs.digest }}
-          restore-keys: tailscale-digest-
-
-      - name: Determine whether digest changed
-        id: compare
-        run: |
-          new_digest="${{ steps.fetch.outputs.digest }}"
-          if [[ -f .tailscale-digest ]]; then
-            old_digest=$(cat .tailscale-digest)
-          else
-            old_digest=""
-          fi
-          if [[ "$new_digest" != "$old_digest" ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Save new digest to cache
-        if: steps.compare.outputs.changed == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .tailscale-digest
-          key: tailscale-digest-${{ steps.fetch.outputs.digest }}
-
   build-and-push:
-    needs: check-tailscale
-    if: >
-      github.event_name != 'schedule' ||
-      needs.check-tailscale.outputs.changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -85,21 +38,12 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
-      - id: meta_variants
-        run: |
-          tags='${{ steps.meta.outputs.tags }}'
-          {
-            echo "tailscale_tags<<EOF"
-            printf '%s\n' "$tags"
-            printf '%s\n' "$tags" | sed -n 'h; s/$/-tailscale/p'
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64/v8
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta_variants.outputs.tailscale_tags }}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

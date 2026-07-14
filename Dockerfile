@@ -10,22 +10,21 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
-# Build a statically linked binary
-RUN cargo build --release
+# Run the full test suite before producing the release binary
+RUN cargo test --locked
 
-# Final stage - base image from scratch
-FROM scratch AS base
+# Build a statically linked binary
+RUN cargo build --release --locked
+
+# Final stage
+FROM scratch
 
 # Copy the statically linked binary
 COPY --from=builder /app/target/release/sidestore-vpn /sidestore-vpn
 
+# Docker sends SIGTERM by default, but sidestore-vpn already exits cleanly on
+# SIGINT through its ctrlc handler.
+STOPSIGNAL SIGINT
+
 # Set the entrypoint
 ENTRYPOINT ["/sidestore-vpn"]
-
-# Tailscale image
-FROM tailscale/tailscale:stable
-ENV TS_ROUTES="10.7.0.1/32"
-ENV TS_EXTRA_ARGS="--snat-subnet-routes=false"
-COPY --from=base /sidestore-vpn /sidestore-vpn
-COPY --chmod=755 tailscale-entrypoint.sh /tailscale-entrypoint.sh
-ENTRYPOINT ["/tailscale-entrypoint.sh"]

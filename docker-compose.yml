@@ -1,5 +1,6 @@
 services:
   sidestore-vpn:
+    build: .
     image: ghcr.io/skulldorom/sidestore-vpn:latest
     container_name: sidestore-vpn
     cap_add:
@@ -8,21 +9,40 @@ services:
       - /dev/net/tun:/dev/net/tun
       # Uncomment the following line on hosts with a TPM module to enable hardware attestation:
       # - /dev/tpmrm0:/dev/tpmrm0
-    # Uncomment the following lines to enable IP forwarding on the host (required for routing traffic through the VPN):
-    # sysctls:
-    #   net.ipv4.ip_forward: "1"
-    #   net.ipv6.conf.all.forwarding: "1"
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY}
-      - TS_ROUTES=${TS_ROUTES:-10.7.0.1/32}
-      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:---snat-subnet-routes=false}
-      - TS_HOSTNAME=${TS_HOSTNAME:-sidestore-vpn}
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv6.conf.all.forwarding: "1"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "ping", "-c", "1", "-W", "3", "10.7.0.1"]
+      test: ["CMD", "/sidestore-vpn", "--healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  tailscale:
+    image: tailscale/tailscale:stable
+    container_name: sidestore-vpn-tailscale
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+      # Uncomment the following line on hosts with a TPM module to enable hardware attestation:
+      # - /dev/tpmrm0:/dev/tpmrm0
+    network_mode: service:sidestore-vpn
+    depends_on:
+      - sidestore-vpn
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:?TS_AUTHKEY is required}
+      - TS_HOSTNAME=${TS_HOSTNAME:-sidestore-vpn}
+      - TS_ROUTES=${TS_ROUTES:-10.7.0.1/32}
+      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:---snat-subnet-routes=false}
+      - TS_USERSPACE=false
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_AUTH_ONCE=true
+    restart: unless-stopped
     volumes:
-      - ./state:/var/lib/tailscale
+      - tailscale-state:/var/lib/tailscale
+
+volumes:
+  tailscale-state:
