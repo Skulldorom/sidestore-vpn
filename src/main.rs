@@ -82,8 +82,17 @@ fn run_healthcheck() -> Result<(), Box<dyn std::error::Error>> {
 fn check_sidestore_destination_reachable() -> Result<(), Box<dyn std::error::Error>> {
     let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))?;
     let local_port = socket.local_addr()?.port();
+    // The TUN device echoes packets by swapping IP src/dst while preserving
+    // UDP ports.  Using local_port as the destination port ensures the echoed
+    // packet is addressed back to our bound port.
     let destination = SocketAddrV4::new(SIDESTORE_DESTINATION_ADDR, local_port);
+    send_udp_probe(socket, destination)
+}
 
+fn send_udp_probe(
+    socket: UdpSocket,
+    destination: SocketAddrV4,
+) -> Result<(), Box<dyn std::error::Error>> {
     socket.set_read_timeout(Some(HEALTHCHECK_TIMEOUT))?;
     socket.set_write_timeout(Some(HEALTHCHECK_TIMEOUT))?;
     socket.connect(destination)?;
@@ -233,6 +242,45 @@ mod tests {
         assert_eq!(packet.src_addr(), SIDESTORE_INTERFACE_ADDR);
         assert_eq!(packet.dst_addr(), SIDESTORE_DESTINATION_ADDR);
         assert!(packet.verify_checksum());
+    }
+
+    #[test]
+    fn send_udp_probe_succeeds_when_echo_server_responds_with_payload() {
+        use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+
+        let server = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let server_addr = server.local_addr().unwrap();
+
+        let server_thread = std::thread::spawn(move || {
+            let mut buf = [0u8; 64];
+            let (len, from) = server.recv_from(&mut buf).unwrap();
+            server.send_to(&buf[..len], from).unwrap();
+        });
+
+        let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let destination = SocketAddrV4::new(Ipv4Addr::LOCALHOST, server_addr.port());
+        super::send_udp_probe(socket, destination).unwrap();
+        server_thread.join().unwrap();
+    }
+
+    #[test]
+    fn send_udp_probe_fails_when_server_responds_with_different_payload() {
+        use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+
+        let server = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let server_addr = server.local_addr().unwrap();
+
+        let server_thread = std::thread::spawn(move || {
+            let mut buf = [0u8; 64];
+            let (_, from) = server.recv_from(&mut buf).unwrap();
+            server.send_to(b"unexpected-response", from).unwrap();
+        });
+
+        let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let destination = SocketAddrV4::new(Ipv4Addr::LOCALHOST, server_addr.port());
+        let result = super::send_udp_probe(socket, destination);
+        assert!(result.is_err());
+        server_thread.join().unwrap();
     }
 
     fn ipv4_packet(src_addr: Ipv4Address, dst_addr: Ipv4Address, payload: &[u8]) -> Vec<u8> {
