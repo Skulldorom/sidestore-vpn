@@ -10,8 +10,10 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
-# Run the full test suite before producing the release binary
-RUN cargo test --locked
+# Run the full test suite in the release profile before producing the binary.
+# This lets the following release build reuse compiled dependencies instead of
+# compiling the same crates once for dev tests and again for release.
+RUN cargo test --release --locked
 
 # Build a statically linked binary
 RUN cargo build --release --locked
