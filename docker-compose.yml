@@ -33,7 +33,7 @@ services:
     depends_on:
       - sidestore-vpn
     environment:
-      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_AUTHKEY=${TS_AUTHKEY:?TS_AUTHKEY is required}
       - TS_HOSTNAME=${TS_HOSTNAME:-sidestore-vpn}
       - TS_ROUTES=${TS_ROUTES:-10.7.0.1/32}
       - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:---snat-subnet-routes=false}
@@ -42,4 +42,7 @@ services:
       - TS_AUTH_ONCE=true
     restart: unless-stopped
     volumes:
-      - ./state:/var/lib/tailscale
+      - tailscale-state:/var/lib/tailscale
+
+volumes:
+  tailscale-state:
