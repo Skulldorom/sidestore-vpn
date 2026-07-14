@@ -37,8 +37,11 @@ Environment variables used by the Compose file:
 | `TS_HOSTNAME`   | Hostname shown in Tailscale admin      | `sidestore-vpn`              |
 | `TS_ROUTES`     | Subnet routes advertised via Tailscale | `10.7.0.1/32`                |
 | `TS_EXTRA_ARGS` | Extra arguments passed to Tailscale    | `--snat-subnet-routes=false` |
+| `TS_USERSPACE`  | Set to `false` to use kernel forwarding via `/dev/net/tun` instead of userspace/netstack mode | `false` |
+| `TS_STATE_DIR`  | Directory where Tailscale stores its state | `/var/lib/tailscale` |
+| `TS_AUTH_ONCE`  | Authenticate only once; skip re-auth if state already exists | `true` |
 
-Both the `sidestore-vpn` and `tailscale` services require their own `/dev/net/tun` device mount and `NET_ADMIN` capability because Compose's `network_mode: service:sidestore-vpn` shares only the network stack, not runtime capabilities or devices. Tailscale state is persisted in `./state` so you don't need to re-authenticate on restart.
+Both the `sidestore-vpn` and `tailscale` services require their own `/dev/net/tun` device mount and `NET_ADMIN` capability because Compose's `network_mode: service:sidestore-vpn` shares only the network stack, not runtime capabilities or devices. `TS_USERSPACE=false` is required so Tailscale uses the kernel TUN device to forward packets at L3 into the shared network namespace where `sidestore-vpn` can rewrite them. Tailscale state is persisted in `./state` so you don't need to re-authenticate on restart.
 
 # Credit
 
