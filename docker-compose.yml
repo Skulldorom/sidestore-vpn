@@ -1,6 +1,5 @@
 services:
   sidestore-vpn:
-    build: .
     image: ghcr.io/skulldorom/sidestore-vpn:latest
     container_name: sidestore-vpn
     cap_add:
