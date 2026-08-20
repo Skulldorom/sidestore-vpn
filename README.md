@@ -1,5 +1,9 @@
 # SideStore VPN
 
+<p align="center">
+  <a href="https://ko-fi.com/skulldorom"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi" /></a>
+</p>
+
 Run one SideStore VPN endpoint for every iOS device on your local network.
 
 SideStore normally needs a per-device WireGuard tunnel or StosVPN profile so install and refresh traffic can be redirected back into the SideStore app. This project does the same packet rewrite on your network instead: iOS connects to `10.7.0.1`, `sidestore-vpn` swaps the packet source and destination addresses, and the traffic is sent back to the device running SideStore.

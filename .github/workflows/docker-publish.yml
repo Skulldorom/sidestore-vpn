@@ -4,9 +4,23 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.github/workflows/docker-publish.yml'
   push:
     branches: [main]
     tags: ['v*']
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.github/workflows/docker-publish.yml'
 
 jobs:
   build-image:
